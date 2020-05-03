@@ -17,11 +17,20 @@ const int ONES_D = 2;
 // initialize volume ADC input pin constant
 const int VOL_IN = 6;
 
+// relay coil pin
+const int RELAY = 12;
+
 // initialize ADC count array that maps ADC counts to display numbers (due to logarithmic pot)
 const int VOL_VALS[] = {0,1,3,4,5,7,8,9,11,12,13,15,16,17,19,20,21,23,24,25,27,28,29,31,36,41,47,52,57,62,68,73,78,83,89,94,99,104,110,115,120,125,131,136,141,146,152,157,162,167,173,178,183,188,194,199,204,209,215,220,225,230,236,241,246,261,276,290,305,320,335,349,364,379,403,427,451,475,498,522,546,570,594,618,642,666,690,713,737,761,785,809,833,857,881,905,928,952,976,1000,1024};
 
+unsigned long mils = 0;
+
 // configure arduino IO
 void setup() {
+
+  // declare relay pin as output
+  pinMode(RELAY, OUTPUT);
+  
   // declare the ledPin as an OUTPUT:
   pinMode(TENS_A, OUTPUT);
   pinMode(TENS_B, OUTPUT);
@@ -43,7 +52,13 @@ void setup() {
   digitalWrite(ONES_C, HIGH);
   digitalWrite(ONES_D, HIGH);
 
+  // initialize serial for debug
   Serial.begin(9600);
+
+  // record current ms timer value
+  mils = millis();  
+
+  analogReference(3);
 }
 
 void loop() {
@@ -59,6 +74,7 @@ void loop() {
   int lastRdg = 0;
   int upd = 0;
   int dirChgCount = 0;
+  int relaySet = 0;
 
   // display all numbers quickly 
   for (int i = 0; i < 10; i++)
@@ -70,10 +86,16 @@ void loop() {
   // main loop
   while(1) {
 
+    if (!relaySet) {
+      if (millis() - mils > 14000) {     
+        digitalWrite(RELAY, HIGH);        
+      }      
+    }
+    
     // get average reading
     for (k = 0; k < numRdgs; k++) {
-      avgRdg += analogRead(VOL_IN);
-      delayMicroseconds(100);        
+      delayMicroseconds(260);
+      avgRdg += analogRead(VOL_IN);              
     }    
     reading = avgRdg / numRdgs;
     avgRdg = 0;      
