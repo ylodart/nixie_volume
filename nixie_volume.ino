@@ -1,8 +1,9 @@
 /*
-  nixie tube display test program
-  J. Scott 3/26/20
+  nixie tube volume display program for arduino nano
+  J. Scott
 */
 
+//initialize multiplexer input arduino output pin constants
 const int TENS_A = 8;
 const int TENS_B = 4;
 const int TENS_C = 5;
@@ -13,10 +14,13 @@ const int ONES_B = 7;
 const int ONES_C = 6;
 const int ONES_D = 2;
 
+// initialize volume ADC input pin constant
 const int VOL_IN = 6;
 
+// initialize ADC count array that maps ADC counts to display numbers (due to logarithmic pot)
 const int VOL_VALS[] = {0,1,3,4,5,7,8,9,11,12,13,15,16,17,19,20,21,23,24,25,27,28,29,31,36,41,47,52,57,62,68,73,78,83,89,94,99,104,110,115,120,125,131,136,141,146,152,157,162,167,173,178,183,188,194,199,204,209,215,220,225,230,236,241,246,261,276,290,305,320,335,349,364,379,403,427,451,475,498,522,546,570,594,618,642,666,690,713,737,761,785,809,833,857,881,905,928,952,976,1000,1024};
 
+// configure arduino IO
 void setup() {
   // declare the ledPin as an OUTPUT:
   pinMode(TENS_A, OUTPUT);
@@ -54,6 +58,7 @@ void loop() {
   int dir = 1; //down=0 up=1
   int lastRdg = 0;
   int upd = 0;
+  int dirChgCount = 0;
 
   // display all numbers quickly 
   for (int i = 0; i < 10; i++)
@@ -73,29 +78,45 @@ void loop() {
     reading = avgRdg / numRdgs;
     avgRdg = 0;      
 
-    // update display with hysteresis
+    // update display with hysteresis if we've changed directions twice
     if (reading - lastRdg > 0) {          // going up
       if (dir == 0) {                     // last direction was down, so we changed directions
-        if (reading - lastRdg != 1) {     // we changed by more than one count
-          upd = 1;                        // set update flag  
-          dir = 1;                        // set direction to up
+        dirChgCount += 1;                 // increase direction change counter
+        if (dirChgCount > 1) {            // we changed directions more than once
+          if (reading - lastRdg != 1) {   // we changed by more than one count
+            upd = 1;                      // set update flag  
+            dir = 1;                      // set direction to up
+            lastRdg = reading;            // record current reading as last reading
+            dirChgCount = 0;              // reset direction change count
+          }
+        } else {                          // we changed directions less than twice
+          upd = 1;
+          dir = 1;
           lastRdg = reading;
         }
       } else {                            // continuing down
         upd = 1;
-        lastRdg = reading;
+        lastRdg = reading;        
       }
     }
     else if (reading - lastRdg < 0) {     // going down
       if (dir == 1) {                     // last direction was up, so we changed directions
-        if (reading - lastRdg != 1) {     
+        dirChgCount += 1;                 
+        if (dirChgCount > 1) {            
+          if (reading - lastRdg != 1) {   
+            upd = 1;                      
+            dir = 0;                      // set direction to down
+            lastRdg = reading;            
+            dirChgCount = 0;              
+          }
+        } else {                          // we changed directions less than twice
           upd = 1;
           dir = 0;
           lastRdg = reading;
         }
       } else {                            // continuing up
         upd = 1;
-        lastRdg = reading;
+        lastRdg = reading;        
       }
     }
       
@@ -117,8 +138,6 @@ void loop() {
       upd = 0;
     }
 
-      
-      
   }
 }
 
