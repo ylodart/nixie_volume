@@ -44,42 +44,85 @@ void setup() {
 
 void loop() {
 
+  // initialize variables
   int reading = 0;
   int numRdgs = 200;
   int j;
   int oldj = 0;
   int k;
   unsigned long avgRdg;
-  
+  int dir = 1; //down=0 up=1
+  int lastRdg = 0;
+  int upd = 0;
+
+  // display all numbers quickly 
   for (int i = 0; i < 10; i++)
-      { 
-        dispNum(i*11);
-        delay(100);  
-      }
-  
+    { 
+      dispNum(i*11);
+      delay(100);  
+    }
+
+  // main loop
   while(1) {
-    
+
+    // get average reading
     for (k = 0; k < numRdgs; k++) {
       avgRdg += analogRead(VOL_IN);
       delayMicroseconds(100);        
-    }
-    
+    }    
     reading = avgRdg / numRdgs;
     avgRdg = 0;      
-    
-    for (j = 0; j < 100; j++) {
-      if (VOL_VALS[j] > reading) {
-        break;
+
+    // update display with hysteresis
+    if (reading - lastRdg > 0) {          // going up
+      if (dir == 0) {                     // last direction was down, so we changed directions
+        if (reading - lastRdg != 1) {     // we changed by more than one count
+          upd = 1;                        // set update flag  
+          dir = 1;                        // set direction to up
+          lastRdg = reading;
+        }
+      } else {                            // continuing down
+        upd = 1;
+        lastRdg = reading;
       }
     }
+    else if (reading - lastRdg < 0) {     // going down
+      if (dir == 1) {                     // last direction was up, so we changed directions
+        if (reading - lastRdg != 1) {     
+          upd = 1;
+          dir = 0;
+          lastRdg = reading;
+        }
+      } else {                            // continuing up
+        upd = 1;
+        lastRdg = reading;
+      }
+    }
+      
+    // update display if update flag is set
+    if (upd) {
+      for (j = 0; j < 100; j++) {     // find display number in array for given counts
+        if (VOL_VALS[j] > reading) {
+          break;
+        }
+      }
 
-    if (j != oldj) {
-      dispNum(j-1);  
-      oldj = j;          
-    }      
+      // update display if display number has changed
+      if (j != oldj) {                
+        dispNum(j-1);  
+        oldj = j;          
+      }
+
+      // reset update flag
+      upd = 0;
+    }
+
+      
+      
   }
 }
 
+// blank display
 void dispBlank () {
     digitalWrite(TENS_A, HIGH);
     digitalWrite(TENS_B, HIGH);
@@ -92,10 +135,14 @@ void dispBlank () {
     digitalWrite(ONES_D, HIGH);
 }
 
+// display given number
 void dispNum (int num) {
+  
+  // get ones and tens digits
   int tens = num / 10;
   int ones = num %10;
 
+  // map display number to multiplexer codes
   switch (tens) {
     case 0:
       dispOut(3,10);
@@ -163,20 +210,24 @@ void dispNum (int num) {
   }
 }
 
+// display given digits
 void dispOut (int num, int digit) {
 
+  // multiplexer inputs for tens digit
   int a = TENS_A;
   int b = TENS_B;
   int c = TENS_C;
   int d = TENS_D;
 
+  // multiplexer inputs for ones digit
   if (digit == 1) {
     a = ONES_A;
     b = ONES_B;
     c = ONES_C;
     d = ONES_D;
   }
-    
+
+  // write multiplexer inputs
   switch (num) {
     case 0:
       digitalWrite(a, LOW); //0
