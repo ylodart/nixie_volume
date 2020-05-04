@@ -1,12 +1,12 @@
 /*
   nixie tube volume display program for arduino nano
 
-  reads value of ganged logarithmic volume pot and displays value
-  reads value of select input switch and displays value for a short period of time each time the switch is changed
-  activates a relay a short while after startup (this is used to connect motor power and prevent the volume control microcontroller from performing its startup routine, which moves the pot to a certain position)
+  reads position of ganged logarithmic volume pot and displays linear value (uses averaging and hysteresis to prevent jumping back and forth between two values)
+  reads position of select input switch and displays value for a short period of time on startup and each time the switch is changed
+  activates a relay a short while after startup (this is used to prevent the motorized volume control microcontroller from performing its startup routine, which moves the pot to a certain position)
     
   J. Scott
-  spring 2020
+  5/4/2020
 */
 
 // multiplexer input arduino output pins
@@ -35,6 +35,7 @@ const int SEL_IN1 = 138;
 const int SEL_IN2 = 334;
 const int SEL_IN3 = 458;
 const int SEL_IN4 = 544;
+const int SEL_IN5 = 650;
 
 // relay ms timer variable
 unsigned long relayMils = 0;
@@ -42,7 +43,7 @@ unsigned long relayMils = 0;
 // declare time constants
 const int SEL_TIME = 1250;      // time to display select
 const int STARTUP_TIME = 500;   // time to wait after startup before allowing volume display to be updated (this is necessary because the RC on the volume ADC input causes a slow updating of the display that clears the display of the select switch value)
-const int RELAY_TIME = 1400;    // time to wait after startup before firing relay
+const int RELAY_TIME = 14000;    // time to wait after startup before firing relay
 
 // configure arduino IO
 void setup() {
@@ -124,7 +125,7 @@ void loop() {
 
     // get average reading
     for (k = 0; k < numRdgs; k++) {
-      delayMicroseconds(260);
+      delayMicroseconds(260);              // max conversion time according to atmega328 datasheet
       avgRdg += analogRead(VOL_IN);
     }
     reading = avgRdg / numRdgs;
@@ -201,7 +202,7 @@ void loop() {
 
     // display input selection if it's changed
     sel = getSelect();
-    if(sel != oldSelect) {
+    if(sel != oldSelect && sel != 0) {
       dispSel(sel);
       selMils = millis();
       startupMils = millis();
@@ -422,9 +423,10 @@ void dispOut (int num, int digit) {
 // get the select switch input number
 int getSelect () {
 
-  // read the select switch
+  // read the select switch  
   int selRdg = analogRead(SEL_IN);
-
+  delayMicroseconds(260); // max conversion time according to atmega328 datasheet
+  
   // return the select switch value based on the reading
   if (selRdg < SEL_IN1) {
     return 1;
@@ -437,7 +439,10 @@ int getSelect () {
   } 
   else if (selRdg > SEL_IN3 && selRdg < SEL_IN4) {
     return 4;
-  } else {
+  } 
+  else if (selRdg > SEL_IN4 && selRdg < SEL_IN5) {
     return 5;
+  } else {
+    return 0;
   }    
 }
