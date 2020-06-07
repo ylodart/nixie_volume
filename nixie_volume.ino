@@ -4,7 +4,7 @@
   reads position of ganged logarithmic volume pot and displays linear value (uses averaging and hysteresis to prevent jumping back and forth between two values)
   reads position of select input switch and displays value for a short period of time on startup and each time the switch is changed
   activates a relay a short while after startup (this is used to prevent the motorized volume control microcontroller from performing its startup routine, which moves the pot to a certain position)
-    
+
   J. Scott
   5/4/2020
 */
@@ -20,7 +20,10 @@ const int ONES_B = 7;
 const int ONES_C = 6;
 const int ONES_D = 2;
 
-// ADC input pins 
+// Volume PCB remote OFF/ON button input
+const int OFFON = 10;
+
+// ADC input pins
 const int VOL_IN = A6;
 const int SEL_IN = A0;
 
@@ -53,6 +56,9 @@ void setup() {
 
   // declare select pin as input with pullup
   pinMode(SEL_IN, INPUT_PULLUP);
+
+  // declare offon pin as input with pullup
+  pinMode(OFFON, INPUT_PULLUP);
 
   // declare the multiplexer pins as output
   pinMode(TENS_A, OUTPUT);
@@ -105,6 +111,8 @@ void loop() {
   unsigned long startupMils = 0;  // time since startup
   int selSet = 0;                 // select switch set flag
   int startup = 1;                // startup flag
+  
+  int offonState = digitalRead(OFFON);  // state of offon
 
   // display all numbers quickly (for fun!)
   for (int i = 0; i < 10; i++)
@@ -114,7 +122,14 @@ void loop() {
   }
 
   // main loop
-  while (1) {       
+  while (1) {
+
+    if (digitalRead(OFFON) != offonState) {
+      //Serial.println("we got here");
+      funDisp();
+      offonState = digitalRead(OFFON);
+      upd = 1;
+    }
 
     // set the relay if it's time
     if (!relaySet) {
@@ -183,26 +198,26 @@ void loop() {
 
       // update display if display number has changed and we're not in startup
       if (j != oldj && !startup) {
-        dispNum(j - 1);        
+        dispNum(j - 1);
         oldj = j;
       }
 
       // reset update flag
       upd = 0;
-    }    
+    }
 
     // clear select display if it's time
-    if(selSet) {
+    if (selSet) {
       if (millis() - selMils > SEL_TIME) {
         upd = 1;
         oldj = 100;
         selSet = 0;
-      }  
+      }
     }
 
     // display input selection if it's changed
     sel = getSelect();
-    if(sel != oldSelect && sel != 0) {
+    if (sel != oldSelect && sel != 0) {
       dispSel(sel);
       selMils = millis();
       startupMils = millis();
@@ -235,8 +250,8 @@ void dispBlank () {
 
 // display select input number
 void dispSel (int num) {
-  
-  switch (num) {  
+
+  switch (num) {
     case 1:
       dispOut(2, 1);
       break;
@@ -251,7 +266,7 @@ void dispSel (int num) {
       break;
     case 5:
       dispOut(4, 1);
-      break;    
+      break;
   }
 
   // blank the 10s digit
@@ -423,10 +438,10 @@ void dispOut (int num, int digit) {
 // get the select switch input number
 int getSelect () {
 
-  // read the select switch  
+  // read the select switch
   int selRdg = analogRead(SEL_IN);
   delayMicroseconds(260); // max conversion time according to atmega328 datasheet
-  
+
   // return the select switch value based on the reading
   if (selRdg < SEL_IN1) {
     return 1;
@@ -436,13 +451,56 @@ int getSelect () {
   }
   else if (selRdg > SEL_IN2 && selRdg < SEL_IN3) {
     return 3;
-  } 
+  }
   else if (selRdg > SEL_IN3 && selRdg < SEL_IN4) {
     return 4;
-  } 
+  }
   else if (selRdg > SEL_IN4 && selRdg < SEL_IN5) {
     return 5;
   } else {
     return 0;
-  }    
+  }
+}
+
+// do a fun display!
+int funDisp() {
+  int i;
+  dispBlank();
+  delay(800);
+  //for (i=0; i < 50; i++) {
+  //  dispNum(random(100));
+  //  delay(100);
+  //} 
+  dispNum(16);
+  delay(1000);
+  dispNum(12);
+  delay(1000);
+  dispBlank();
+  delay(3400);
+  dispOut(2, 1);
+  delay(500);
+  dispOut(7, 1);
+  delay(500);
+  dispOut(2, 1);
+  delay(500);
+  dispOut(3, 1);
+  delay(1000);
+  dispBlank();
+  delay(3100); 
+  dispNum(16);
+  delay(1000);
+  dispNum(12);
+  delay(1000);
+  dispBlank();
+  delay(3400);
+  dispOut(2, 1);
+  delay(700);
+  dispOut(7, 1);
+  delay(700);
+  dispOut(2, 1);
+  delay(700);
+  dispOut(3, 1);
+  delay(1000);
+  dispBlank();
+  delay(1000); 
 }
