@@ -464,43 +464,43 @@ int getSelect () {
 
 // do a fun display!
 int funDisp() {
-  int i;
-  dispBlank();
-  delay(800);
+//  int i;
+//  dispBlank();
+//  delay(800);
   //for (i=0; i < 50; i++) {
   //  dispNum(random(100));
   //  delay(100);
   //} 
-  dispNum(16);
-  delay(1000);
-  dispNum(12);
-  delay(1000);
-  dispBlank();
-  delay(3400);
-  dispOut(2, 1);
-  delay(500);
-  dispOut(7, 1);
-  delay(500);
-  dispOut(2, 1);
-  delay(500);
-  dispOut(3, 1);
-  delay(1000);
-  dispBlank();
-  delay(3100); 
-  dispNum(16);
-  delay(1000);
-  dispNum(12);
-  delay(1000);
-  dispBlank();
-  delay(3400);
-  dispOut(2, 1);
-  delay(700);
-  dispOut(7, 1);
-  delay(700);
-  dispOut(2, 1);
-  delay(700);
-  dispOut(3, 1);
-  delay(1000);
-  dispBlank();
-  delay(1000); 
+//  dispNum(16);
+//  delay(1000);
+//  dispNum(12);
+//  delay(1000);
+//  dispBlank();
+//  delay(3400);
+//  dispOut(2, 1);
+//  delay(500);
+//  dispOut(7, 1);
+//  delay(500);
+//  dispOut(2, 1);
+//  delay(500);
+//  dispOut(3, 1);
+//  delay(1000);
+//  dispBlank();
+//  delay(3100); 
+//  dispNum(16);
+//  delay(1000);
+//  dispNum(12);
+//  delay(1000);
+//  dispBlank();
+//  delay(3400);
+//  dispOut(2, 1);
+//  delay(700);
+//  dispOut(7, 1);
+//  delay(700);
+//  dispOut(2, 1);
+//  delay(700);
+//  dispOut(3, 1);
+//  delay(1000);
+//  dispBlank();
+//  delay(1000); 
 }
