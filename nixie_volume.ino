@@ -2,8 +2,9 @@
   nixie tube volume display program for arduino nano
 
   reads position of ganged logarithmic volume pot and displays linear value (uses averaging and hysteresis to prevent jumping back and forth between two values)
-  reads position of select input switch and displays value for a short period of time on startup and each time the switch is changed
+  reads position of select input switch and displays value for a short period of time on startup and each time the switch is changed (this feature has been commented out)
   activates a relay a short while after startup (this is used to prevent the motorized volume control microcontroller from performing its startup routine, which moves the pot to a certain position)
+  to program, select board: Nano and processor: Atmega328P (old bootloader)
 
   J. Scott
   5/4/2020
@@ -32,6 +33,8 @@ const int RELAY = 12;
 
 // volume ADC count array that maps ADC counts to display numbers (due to logarithmic pot)
 const int VOL_VALS[] = {0, 1, 3, 4, 5, 7, 8, 9, 11, 12, 13, 15, 16, 17, 19, 20, 21, 23, 24, 25, 27, 28, 29, 31, 36, 41, 47, 52, 57, 62, 68, 73, 78, 83, 89, 94, 99, 104, 110, 115, 120, 125, 131, 136, 141, 146, 152, 157, 162, 167, 173, 178, 183, 188, 194, 199, 204, 209, 215, 220, 225, 230, 236, 241, 246, 261, 276, 290, 305, 320, 335, 349, 364, 379, 403, 427, 451, 475, 498, 522, 546, 570, 594, 618, 642, 666, 690, 713, 737, 761, 785, 809, 833, 857, 881, 905, 928, 952, 976, 1000, 1024};
+//const int VOL_VALS[] = {0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 57, 62, 68, 73, 78, 83, 89, 94, 99, 104, 110, 115, 120, 125, 131, 136, 141, 146, 152, 157, 162, 167, 173, 178, 183, 188, 194, 199, 204, 209, 215, 220, 225, 230, 236, 241, 246, 261, 276, 290, 305, 320, 335, 349, 364, 379, 403, 427, 451, 475, 498, 522, 546, 570, 594, 618, 642, 666, 690, 713, 737, 761, 785, 809, 833, 857, 881, 905, 928, 952, 976, 1000, 1024};
+//const int VOL_VALS[] = {0,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,35,40,45,50,55,60,65,70,75,80,85,90,95,100,105,110,115,120,125,130,135,140,145,150,155,160,165,170,175,180,185,190,195,200,205,210,215,220,225,230,235,240,245,260,275,290,305,320,335,350,365,380,400,420,440,460,480,500,520,540,560,580,600,620,640,660,680,700,720,740,760,780,800,820,840,860,880,900,920,940,960,980,1000,1024};
 
 // ADC counts for select inputs
 const int SEL_IN1 = 138;
@@ -97,12 +100,12 @@ void loop() {
   int reading = 0;                // volume pot ADC reading
   int numRdgs = 200;              // number of volume pot readings to average
   int j;                          // index of volume array (also volume setting number to display)
-  int oldj = 0;                   // last index of volume array
+  int oldj = 200;                 // last index of volume array - set to impossible value at first to force display update
   int k;                          // volume ADC reading counter
   unsigned long avgRdg;           // average reading
   int dir = 1; //down=0 up=1      // direction volume pot is being turned
   int lastRdg = 0;                // last volume ADC reading
-  int upd = 0;                    // update volume display flag
+  int upd = 1;                    // update volume display flag
   int dirChgCount = 0;            // counter for number of times volume pot has changed direction
   int relaySet = 0;               // relay set flag
   int oldSelect = 0;              // last value of select switch
@@ -114,7 +117,7 @@ void loop() {
   
   int offonState = digitalRead(OFFON);  // state of offon
 
-  // display all numbers quickly (for fun!)
+  // display all numbers quickly (for fun! and to prevent cathod poisoning)
   for (int i = 0; i < 10; i++)
   {
     dispNum(i * 11);
@@ -124,17 +127,18 @@ void loop() {
   // main loop
   while (1) {
 
-    if (digitalRead(OFFON) != offonState) {
-      //Serial.println("we got here");
-      funDisp();
-      offonState = digitalRead(OFFON);
-      upd = 1;
-    }
+//    if (digitalRead(OFFON) != offonState) {
+//      //Serial.println("we got here");
+//      funDisp();
+//      offonState = digitalRead(OFFON);
+//      upd = 1;
+//    }
 
     // set the relay if it's time
     if (!relaySet) {
       if (millis() - relayMils > RELAY_TIME) {
         digitalWrite(RELAY, HIGH);
+        relaySet = 1;
       }
     }
 
@@ -147,45 +151,51 @@ void loop() {
     avgRdg = 0;
 
     // update display with hysteresis if we've changed directions twice
-    if (reading - lastRdg > 0) {          // going up
-      if (dir == 0) {                     // last direction was down, so we changed directions
-        dirChgCount += 1;                 // increase direction change counter
-        if (dirChgCount > 1) {            // we changed directions more than once
-          if (reading - lastRdg != 1) {   // we changed by more than one count
-            upd = 1;                      // set update flag
-            dir = 1;                      // set direction to up
-            lastRdg = reading;            // record current reading as last reading
-            dirChgCount = 0;              // reset direction change count
-          }
-        } else {                          // we changed directions less than twice
-          upd = 1;
-          dir = 1;
-          lastRdg = reading;
-        }
-      } else {                            // continuing down
-        upd = 1;
-        lastRdg = reading;
-      }
-    }
-    else if (reading - lastRdg < 0) {     // going down
-      if (dir == 1) {                     // last direction was up, so we changed directions
-        dirChgCount += 1;
-        if (dirChgCount > 1) {
-          if (reading - lastRdg != 1) {
-            upd = 1;
-            dir = 0;                      // set direction to down
-            lastRdg = reading;
-            dirChgCount = 0;
-          }
-        } else {                          // we changed directions less than twice
-          upd = 1;
-          dir = 0;
-          lastRdg = reading;
-        }
-      } else {                            // continuing up
-        upd = 1;
-        lastRdg = reading;
-      }
+//    if (reading - lastRdg > 1) {          // going up
+//      if (dir == 0) {                     // last direction was down, so we changed directions
+//        dirChgCount += 1;                 // increase direction change counter
+//        if (dirChgCount > 1) {            // we changed directions more than once
+//          if (reading - lastRdg != 1) {   // we changed by more than one count
+//            upd = 1;                      // set update flag
+//            dir = 1;                      // set direction to up
+//            lastRdg = reading;            // record current reading as last reading
+//            dirChgCount = 0;              // reset direction change count
+//          }
+//        } else {                          // we changed directions less than twice
+//          upd = 1;
+//          dir = 1;
+//          lastRdg = reading;
+//        }
+//      } else {                            // continuing down
+//        upd = 1;
+//        lastRdg = reading;
+//      }
+//    }
+//    else if (reading - lastRdg < 0) {     // going down
+//      if (dir == 1) {                     // last direction was up, so we changed directions
+//        dirChgCount += 1;
+//        if (dirChgCount > 1) {
+//          if (reading - lastRdg != 1) {
+//            upd = 1;
+//            dir = 0;                      // set direction to down
+//            lastRdg = reading;
+//            dirChgCount = 0;
+//          }
+//        } else {                          // we changed directions less than twice
+//          upd = 1;
+//          dir = 0;
+//          lastRdg = reading;
+//        }
+//      } else {                            // continuing up
+//        upd = 1;
+//        lastRdg = reading;
+//      }
+//    }
+
+
+    if (abs(reading - lastRdg) > 0) {
+      upd = 1;
+      lastRdg = reading;
     }
 
     // update display if update flag is set
@@ -200,30 +210,30 @@ void loop() {
       if (j != oldj && !startup) {
         dispNum(j - 1);
         oldj = j;
+        
+        // reset update flag
+        upd = 0;
       }
-
-      // reset update flag
-      upd = 0;
     }
 
     // clear select display if it's time
-    if (selSet) {
-      if (millis() - selMils > SEL_TIME) {
-        upd = 1;
-        oldj = 100;
-        selSet = 0;
-      }
-    }
+    //if (selSet) {
+    //  if (millis() - selMils > SEL_TIME) {
+    //    upd = 1;
+    //    oldj = 100;
+    //    selSet = 0;
+    //  }
+    //}
 
     // display input selection if it's changed
-    sel = getSelect();
-    if (sel != oldSelect && sel != 0) {
-      dispSel(sel);
-      selMils = millis();
-      startupMils = millis();
-      oldSelect = sel;
-      selSet = 1;
-    }
+    //sel = getSelect();
+    //if (sel != oldSelect && sel != 0) {
+    //  dispSel(sel);
+    //  selMils = millis();
+    //  startupMils = millis();
+    //  oldSelect = sel;
+    //  selSet = 1;
+    //}
 
     // if startup time has expired, clear startup flag
     if (startup) {
