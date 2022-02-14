@@ -1,14 +1,15 @@
 /*
   nixie tube volume display program for arduino nano
 
-  reads position of ganged logarithmic volume pot and displays linear value (uses averaging and hysteresis to prevent jumping back and forth between two values)
-  reads position of select input switch and displays value for a short period of time on startup and each time the switch is changed (this feature has been commented out)
-  activates a relay a short while after startup (this is used to prevent the motorized volume control microcontroller from performing its startup routine, which moves the pot to a certain position)
+  reads position of ganged logarithmic volume pot and displays linear value (uses averaging to prevent jumping back and forth between two values)
+  gets codes from apple remote and controls motorized volume 
   to program, select board: Nano and processor: Atmega328P (old bootloader)
 
   J. Scott
-  5/4/2020
+  last update: 2/13/2022
 */
+
+#include <IRremote.h>
 
 // multiplexer input arduino output pins
 const int TENS_A = 8;
@@ -22,46 +23,32 @@ const int ONES_C = 6;
 const int ONES_D = 2;
 
 // Volume PCB remote OFF/ON button input
-const int OFFON = 10;
+const int IR = 12;
+const int MOTOR_A = 10;
+const int MOTOR_B = 11;
 
 // ADC input pins
 const int VOL_IN = A6;
-const int SEL_IN = A0;
-
-// relay coil pin
-const int RELAY = 12;
 
 // volume ADC count array that maps ADC counts to display numbers (due to logarithmic pot)
 const int VOL_VALS[] = {0, 1, 3, 4, 5, 7, 8, 9, 11, 12, 13, 15, 16, 17, 19, 20, 21, 23, 24, 25, 27, 28, 29, 31, 36, 41, 47, 52, 57, 62, 68, 73, 78, 83, 89, 94, 99, 104, 110, 115, 120, 125, 131, 136, 141, 146, 152, 157, 162, 167, 173, 178, 183, 188, 194, 199, 204, 209, 215, 220, 225, 230, 236, 241, 246, 261, 276, 290, 305, 320, 335, 349, 364, 379, 403, 427, 451, 475, 498, 522, 546, 570, 594, 618, 642, 666, 690, 713, 737, 761, 785, 809, 833, 857, 881, 905, 928, 952, 976, 1000, 1024};
 //const int VOL_VALS[] = {0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 57, 62, 68, 73, 78, 83, 89, 94, 99, 104, 110, 115, 120, 125, 131, 136, 141, 146, 152, 157, 162, 167, 173, 178, 183, 188, 194, 199, 204, 209, 215, 220, 225, 230, 236, 241, 246, 261, 276, 290, 305, 320, 335, 349, 364, 379, 403, 427, 451, 475, 498, 522, 546, 570, 594, 618, 642, 666, 690, 713, 737, 761, 785, 809, 833, 857, 881, 905, 928, 952, 976, 1000, 1024};
 //const int VOL_VALS[] = {0,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,35,40,45,50,55,60,65,70,75,80,85,90,95,100,105,110,115,120,125,130,135,140,145,150,155,160,165,170,175,180,185,190,195,200,205,210,215,220,225,230,235,240,245,260,275,290,305,320,335,350,365,380,400,420,440,460,480,500,520,540,560,580,600,620,640,660,680,700,720,740,760,780,800,820,840,860,880,900,920,940,960,980,1000,1024};
 
-// ADC counts for select inputs
-const int SEL_IN1 = 138;
-const int SEL_IN2 = 334;
-const int SEL_IN3 = 458;
-const int SEL_IN4 = 544;
-const int SEL_IN5 = 650;
-
-// relay ms timer variable
-unsigned long relayMils = 0;
-
 // declare time constants
-const int SEL_TIME = 1250;      // time to display select
-const int STARTUP_TIME = 500;   // time to wait after startup before allowing volume display to be updated (this is necessary because the RC on the volume ADC input causes a slow updating of the display that clears the display of the select switch value)
-const int RELAY_TIME = 14000;    // time to wait after startup before firing relay
+const int MOTOR_MS = 20; //this is the number of milliseconds the motor will turn before it checks for a new IR input or turns the motor off -- effectively the resolution of a single remote volume button press
+
+// how many repeats of menu button before entering fun mode
+const int FUN_COUNTS = 10;
+
+// apple remote IR codes
+long UP_BTN = 0xDE0B87EE;
+long DOWN_BTN = 0xDE0D87EE;
+int REP_BTN = 0x0;
+long MENU_BTN = 0xDE0287EE;
 
 // configure arduino IO
 void setup() {
-
-  // declare relay pin as output
-  pinMode(RELAY, OUTPUT);
-
-  // declare select pin as input with pullup
-  pinMode(SEL_IN, INPUT_PULLUP);
-
-  // declare offon pin as input with pullup
-  pinMode(OFFON, INPUT_PULLUP);
 
   // declare the multiplexer pins as output
   pinMode(TENS_A, OUTPUT);
@@ -85,62 +72,55 @@ void setup() {
   digitalWrite(ONES_C, HIGH);
   digitalWrite(ONES_D, HIGH);
 
+  //analogReference(INTERNAL);
+
   // initialize serial for debug
   Serial.begin(9600);
 
-  // record current ms timer value
-  relayMils = millis();
+  // initialize IR receiver
+  IrReceiver.begin(IR, DISABLE_LED_FEEDBACK);
 
-  //analogReference(3);
+  // set motor control pins low
+  pinMode(MOTOR_A ,OUTPUT);
+  pinMode(MOTOR_B ,OUTPUT);
+  digitalWrite(MOTOR_A, LOW);
+  digitalWrite(MOTOR_B, LOW);
+
 }
 
 void loop() {
 
   // initialize variables
   int reading = 0;                // volume pot ADC reading
-  int numRdgs = 200;              // number of volume pot readings to average
+  int numRdgs = 300;              // number of volume pot readings to average
   int j;                          // index of volume array (also volume setting number to display)
   int oldj = 200;                 // last index of volume array - set to impossible value at first to force display update
   int k;                          // volume ADC reading counter
-  unsigned long avgRdg;           // average reading
-  int dir = 1; //down=0 up=1      // direction volume pot is being turned
+  unsigned long avgRdg = 0;       // average reading
   int lastRdg = 0;                // last volume ADC reading
   int upd = 1;                    // update volume display flag
-  int dirChgCount = 0;            // counter for number of times volume pot has changed direction
-  int relaySet = 0;               // relay set flag
-  int oldSelect = 0;              // last value of select switch
-  int sel;                        // select switch value
-  unsigned long selMils = 0;      // time select switch was set
-  unsigned long startupMils = 0;  // time since startup
-  int selSet = 0;                 // select switch set flag
-  int startup = 1;                // startup flag
-  
-  int offonState = digitalRead(OFFON);  // state of offon
+  long lastCode;                  // last IR code received
+  long code;                      // current IR code
+  long milliCount = 0;            // millisecond counter
+  int funCount = 0;               // fun counter (must hold down a button to enter fun mode)
 
-  // display all numbers quickly (for fun! and to prevent cathod poisoning)
+  // display all numbers quickly (for fun! and to prevent cathode poisoning)
   for (int i = 0; i < 10; i++)
   {
-    dispNum(i * 11);
-    delay(100);
+    dispNum(i * 11, 1);
+    delay(120);
+  }
+  dispBlank();
+  delay(50);
+
+  // I don't know why the hell this is necessary but the first 1000 readings are garbage. They ramp up from zero to the proper value, no matter what.
+  for (int l = 0; l < 1000; l++) {
+    analogRead(VOL_IN);
+    delayMicroseconds(100);
   }
 
   // main loop
   while (1) {
-
-//    if (digitalRead(OFFON) != offonState) {
-//      //Serial.println("we got here");
-//      funDisp();
-//      offonState = digitalRead(OFFON);
-//      upd = 1;
-//    }
-
-    // set the relay if it's time
-    if (!relaySet) {
-      if (millis() - relayMils > RELAY_TIME) {
-        digitalWrite(RELAY, HIGH);
-        relaySet = 1;
-      }
-    }
 
     // get average reading
     for (k = 0; k < numRdgs; k++) {
@@ -150,65 +130,23 @@ void loop() {
     reading = avgRdg / numRdgs;
     avgRdg = 0;
 
-    // update display with hysteresis if we've changed directions twice
-//    if (reading - lastRdg > 1) {          // going up
-//      if (dir == 0) {                     // last direction was down, so we changed directions
-//        dirChgCount += 1;                 // increase direction change counter
-//        if (dirChgCount > 1) {            // we changed directions more than once
-//          if (reading - lastRdg != 1) {   // we changed by more than one count
-//            upd = 1;                      // set update flag
-//            dir = 1;                      // set direction to up
-//            lastRdg = reading;            // record current reading as last reading
-//            dirChgCount = 0;              // reset direction change count
-//          }
-//        } else {                          // we changed directions less than twice
-//          upd = 1;
-//          dir = 1;
-//          lastRdg = reading;
-//        }
-//      } else {                            // continuing down
-//        upd = 1;
-//        lastRdg = reading;
-//      }
-//    }
-//    else if (reading - lastRdg < 0) {     // going down
-//      if (dir == 1) {                     // last direction was up, so we changed directions
-//        dirChgCount += 1;
-//        if (dirChgCount > 1) {
-//          if (reading - lastRdg != 1) {
-//            upd = 1;
-//            dir = 0;                      // set direction to down
-//            lastRdg = reading;
-//            dirChgCount = 0;
-//          }
-//        } else {                          // we changed directions less than twice
-//          upd = 1;
-//          dir = 0;
-//          lastRdg = reading;
-//        }
-//      } else {                            // continuing up
-//        upd = 1;
-//        lastRdg = reading;
-//      }
-//    }
-
-
+    // set the update reading flag if we have a new reading
     if (abs(reading - lastRdg) > 0) {
       upd = 1;
       lastRdg = reading;
     }
 
-    // update display if update flag is set
+    // if update flag is set, find the value to display
     if (upd) {
-      for (j = 0; j < 100; j++) {     // find display number in array for given counts
+      for (j = 0; j < 100; j++) {    
         if (VOL_VALS[j] > reading) {
           break;
         }
       }
 
-      // update display if display number has changed and we're not in startup
-      if (j != oldj && !startup) {
-        dispNum(j - 1);
+      // update display if display number has changed
+      if (j != oldj) {
+        dispNum(j - 1, 1);
         oldj = j;
         
         // reset update flag
@@ -216,34 +154,64 @@ void loop() {
       }
     }
 
-    // clear select display if it's time
-    //if (selSet) {
-    //  if (millis() - selMils > SEL_TIME) {
-    //    upd = 1;
-    //    oldj = 100;
-    //    selSet = 0;
-    //  }
-    //}
-
-    // display input selection if it's changed
-    //sel = getSelect();
-    //if (sel != oldSelect && sel != 0) {
-    //  dispSel(sel);
-    //  selMils = millis();
-    //  startupMils = millis();
-    //  oldSelect = sel;
-    //  selSet = 1;
-    //}
-
-    // if startup time has expired, clear startup flag
-    if (startup) {
-      if (millis() - startupMils > STARTUP_TIME) {
-        startup = 0;
+    // check for remote codes
+    if (IrReceiver.decode()) {
+      milliCount = millis();
+      code = IrReceiver.decodedIRData.decodedRawData;
+      if(code != REP_BTN) {
+        lastCode = code;
       }
+      else {
+        if (lastCode == UP_BTN) {
+          goUp();
+        }
+        if (lastCode == DOWN_BTN) {
+          goDown();
+        }
+        if (lastCode == MENU_BTN) {
+          funCount += 1;
+          if (funCount == FUN_COUNTS) {
+            funCount = 0;
+            funDisp();
+            oldj = 200; // force a display update
+            upd = 1;
+          }
+        }
+      }
+      if(code == UP_BTN) {
+        goUp();
+      }
+      if(code == DOWN_BTN) {
+        goDown();
+      }
+      IrReceiver.resume();
+    }
+
+    // stop motor if we haven't received an IR code
+    if (millis() - milliCount > MOTOR_MS) {
+      stopMotor();
     }
 
   } // main loop
 } // void loop
+
+// tell the motor to go up
+void goUp() {
+  digitalWrite(MOTOR_A, HIGH); 
+  digitalWrite(MOTOR_B, LOW); 
+}
+
+// tell the motor to go down
+void goDown() {
+  digitalWrite(MOTOR_B, HIGH);
+  digitalWrite(MOTOR_A, LOW); 
+}
+
+// stop the motor
+void stopMotor() {  
+  digitalWrite(MOTOR_A, LOW); 
+  digitalWrite(MOTOR_B, LOW); 
+}
 
 // blank display
 void dispBlank () {
@@ -258,70 +226,47 @@ void dispBlank () {
   digitalWrite(ONES_D, HIGH);
 }
 
-// display select input number
-void dispSel (int num) {
-
-  switch (num) {
-    case 1:
-      dispOut(2, 1);
-      break;
-    case 2:
-      dispOut(3, 1);
-      break;
-    case 3:
-      dispOut(1, 1);
-      break;
-    case 4:
-      dispOut(0, 1);
-      break;
-    case 5:
-      dispOut(4, 1);
-      break;
-  }
-
-  // blank the 10s digit
-  dispOut(15, 10);
-}
-
 // display given number
-void dispNum (int num) {
+void dispNum (int num, int dispZero) {
 
   // get ones and tens digits
   int tens = num / 10;
   int ones = num % 10;
 
   // map display number to multiplexer codes
-  switch (tens) {
-    case 0:
-      dispOut(3, 10);
-      break;
-    case 1:
-      dispOut(7, 10);
-      break;
-    case 2:
-      dispOut(4, 10);
-      break;
-    case 3:
-      dispOut(2, 10);
-      break;
-    case 4:
-      dispOut(9, 10);
-      break;
-    case 5:
-      dispOut(0, 10);
-      break;
-    case 6:
-      dispOut(5, 10);
-      break;
-    case 7:
-      dispOut(1, 10);
-      break;
-    case 8:
-      dispOut(6, 10);
-      break;
-    case 9:
-      dispOut(8, 10);
-      break;
+  if (dispZero || tens > 0) {
+    switch (tens) {
+      case 0:
+        dispOut(3, 10);
+        break;
+      case 1:
+        dispOut(7, 10);
+        break;
+      case 2:
+        dispOut(4, 10);
+        break;
+      case 3:
+        dispOut(2, 10);
+        break;
+      case 4:
+        dispOut(9, 10);
+        break;
+      case 5:
+        dispOut(0, 10);
+        break;
+      case 6:
+        dispOut(5, 10);
+        break;
+      case 7:
+        dispOut(1, 10);
+        break;
+      case 8:
+        dispOut(6, 10);
+        break;
+      case 9:
+        dispOut(8, 10);
+        break;
+    }
   }
 
   switch (ones) {
@@ -379,7 +324,7 @@ void dispOut (int num, int digit) {
   switch (num) {
     case 0:
       digitalWrite(a, LOW); //0
-      digitalWrite(a, LOW);
+      digitalWrite(b, LOW);
       digitalWrite(c, LOW);
       digitalWrite(d, LOW);
       break;
@@ -437,80 +382,39 @@ void dispOut (int num, int digit) {
       digitalWrite(c, LOW);
       digitalWrite(d, HIGH);
       break;
-    case 15:
-      digitalWrite(a, HIGH); //15
-      digitalWrite(a, HIGH);
-      digitalWrite(c, HIGH);
-      digitalWrite(d, HIGH);
-  }
-}
-
-// get the select switch input number
-int getSelect () {
-
-  // read the select switch
-  int selRdg = analogRead(SEL_IN);
-  delayMicroseconds(260); // max conversion time according to atmega328 datasheet
-
-  // return the select switch value based on the reading
-  if (selRdg < SEL_IN1) {
-    return 1;
-  }
-  else if (selRdg > SEL_IN1 && selRdg < SEL_IN2) {
-    return 2;
-  }
-  else if (selRdg > SEL_IN2 && selRdg < SEL_IN3) {
-    return 3;
-  }
-  else if (selRdg > SEL_IN3 && selRdg < SEL_IN4) {
-    return 4;
-  }
-  else if (selRdg > SEL_IN4 && selRdg < SEL_IN5) {
-    return 5;
-  } else {
-    return 0;
   }
 }
 
 // do a fun display!
 int funDisp() {
-//  int i;
-//  dispBlank();
-//  delay(800);
-  //for (i=0; i < 50; i++) {
-  //  dispNum(random(100));
-  //  delay(100);
-  //} 
-//  dispNum(16);
-//  delay(1000);
-//  dispNum(12);
-//  delay(1000);
-//  dispBlank();
-//  delay(3400);
-//  dispOut(2, 1);
-//  delay(500);
-//  dispOut(7, 1);
-//  delay(500);
-//  dispOut(2, 1);
-//  delay(500);
-//  dispOut(3, 1);
-//  delay(1000);
-//  dispBlank();
-//  delay(3100); 
-//  dispNum(16);
-//  delay(1000);
-//  dispNum(12);
-//  delay(1000);
-//  dispBlank();
-//  delay(3400);
-//  dispOut(2, 1);
-//  delay(700);
-//  dispOut(7, 1);
-//  delay(700);
-//  dispOut(2, 1);
-//  delay(700);
-//  dispOut(3, 1);
-//  delay(1000);
-//  dispBlank();
-//  delay(1000); 
+  int i;
+  int dly = 1300;
+  int randoNums = 15;
+  int randoDly = 50;
+  
+  for (i=0; i < randoNums; i++) {
+    dispNum(random(100), 1);
+    delay(randoDly);
+  }
+  
+  dispBlank();
+  delay(dly*2);
+  dispNum(4, 0);
+  delay(dly);
+  dispNum(8, 0);
+  delay(dly);
+  dispNum(15, 1);
+  delay(dly);
+  dispNum(16, 1);
+  delay(dly);
+  dispNum(32, 1);
+  
+  delay(dly);
+  for (i=0; i < randoNums; i++) {
+    dispNum(random(100), 1);
+    delay(randoDly);
+  }
+
+  dispBlank();
+  delay(dly);
 }
