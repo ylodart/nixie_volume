@@ -10,6 +10,10 @@
 */
 
 #include <IRremote.h>
+#include <RTClib.h>
+
+// define RTC module
+RTC_DS3231 rtc;
 
 // multiplexer input arduino output pins
 const int TENS_A = 8;
@@ -39,13 +43,24 @@ const int VOL_VALS[] = {0, 1, 3, 4, 5, 7, 8, 9, 11, 12, 13, 15, 16, 17, 19, 20, 
 const int MOTOR_MS = 20; //this is the number of milliseconds the motor will turn before it checks for a new IR input or turns the motor off -- effectively the resolution of a single remote volume button press
 
 // how many repeats of menu button before entering fun mode
-const int FUN_COUNTS = 10;
+const int FUN_COUNTS = 15;
 
 // apple remote IR codes
-long UP_BTN = 0xDE0B87EE;
-long DOWN_BTN = 0xDE0D87EE;
-int REP_BTN = 0x0;
-long MENU_BTN = 0xDE0287EE;
+const long UP_BTN = 0xDE0B87EE;
+const long DOWN_BTN = 0xDE0D87EE;
+const int REP_BTN = 0x0;
+const long MENU_BTN = 0xDE0287EE;
+const long PLAY_BTN1 = 0xDE5E87EE;
+const long PLAY_BTN2 = 0xDE0487EE;
+const long CENTER_BTN1 = 0xDE5D87EE;
+const long CENTER_BTN2 = 0xDE0487EE;
+const long RIGHT_BTN = 0xDE0787EE;
+const long LEFT_BTN = 0xDE0887EE;
+
+// times (ms) for clock display state machine
+const int MIN_HR_MILS = 1000;    // time btwn displaying minute and hour
+const int DIGIT_MILS = 3000;    // time hr/min will display
+const int HR_MIN_MILS = 200;    // time btwn displaying hour and minute
 
 // configure arduino IO
 void setup() {
@@ -86,6 +101,12 @@ void setup() {
   digitalWrite(MOTOR_A, LOW);
   digitalWrite(MOTOR_B, LOW);
 
+  // initialize RTC
+  rtc.begin();
+
+  // this will set the clock to the host computer's time when the code was compiled
+  //rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+
 }
 
 void loop() {
@@ -99,10 +120,22 @@ void loop() {
   unsigned long avgRdg = 0;       // average reading
   int lastRdg = 0;                // last volume ADC reading
   int upd = 1;                    // update volume display flag
+  
   long lastCode;                  // last IR code received
   long code;                      // current IR code
-  long milliCount = 0;            // millisecond counter
-  int funCount = 0;               // fun counter (must hold down a button to enter fun mode)
+  long milliCount = 0;            // millisecond counter for stopping vol motor if remote codes stop coming in 
+  int funCount = 0;               // fun button repeat counter (must hold down a button to enter fun mode)
+  
+  int clockCount;                 // millisecond counter for timing clock display
+  int clockMode = 0;              // clock mode flag
+  int millisNow;                  // var for capturing current millisecond timer value
+  int hr;                         // variable for storing hour so we can convert it from 24 hr to 12 hr mode
+
+  // vars below convert clock time constants into accumulating time for state machine
+  int clockTime1 = MIN_HR_MILS;                                    
+  int clockTime2 = MIN_HR_MILS + DIGIT_MILS;
+  int clockTime3 = MIN_HR_MILS + DIGIT_MILS + HR_MIN_MILS;
+  int clockTime4 = MIN_HR_MILS + DIGIT_MILS + HR_MIN_MILS + DIGIT_MILS;
 
   // display all numbers quickly (for fun! and to prevent cathode poisoning)
   for (int i = 0; i < 10; i++)
@@ -145,7 +178,7 @@ void loop() {
       }
 
       // update display if display number has changed
-      if (j != oldj) {
+      if (j != oldj && !clockMode) {
         dispNum(j - 1, 1);
         oldj = j;
         
@@ -154,11 +187,11 @@ void loop() {
       }
     }
 
-    // check for remote codes
+    // check for remote codes and act accordingly
     if (IrReceiver.decode()) {
       milliCount = millis();
       code = IrReceiver.decodedIRData.decodedRawData;
-      if(code != REP_BTN) {
+      if(code != REP_BTN || code == PLAY_BTN2) {  // play button generates 2 codes so ignore the second one
         lastCode = code;
       }
       else {
@@ -168,21 +201,30 @@ void loop() {
         if (lastCode == DOWN_BTN) {
           goDown();
         }
-        if (lastCode == MENU_BTN) {
+        if (lastCode == PLAY_BTN1) {
           funCount += 1;
           if (funCount == FUN_COUNTS) {
             funCount = 0;
             funDisp();
-            oldj = 200; // force a display update
+            oldj = 200; // force a vol display update
             upd = 1;
           }
         }
       }
-      if(code == UP_BTN) {
+      if(code == UP_BTN)
         goUp();
-      }
-      if(code == DOWN_BTN) {
+      if(code == DOWN_BTN)
         goDown();
+      if(code == MENU_BTN) {
+        if (clockMode) {
+          clockMode = 0;
+          oldj = 200; // force a vol display update
+          upd = 1;
+        }
+        else {
+          clockMode = 1;
+          clockCount = millis();  
+        }          
       }
       IrReceiver.resume();
     }
@@ -190,6 +232,33 @@ void loop() {
     // stop motor if we haven't received an IR code
     if (millis() - milliCount > MOTOR_MS) {
       stopMotor();
+    }
+
+    // get current time
+    DateTime now = rtc.now();
+
+    // state machine for displaying hours and minutes
+    if (clockMode) {
+      millisNow = millis() - clockCount;
+      if (millisNow < clockTime1) {
+        dispBlank();
+      }
+      if (millisNow > clockTime1 && millisNow < clockTime2) {
+        // convert 24 hr time to 12 hr time
+        hr = now.hour();
+        if (hr > 12)
+          hr = hr - 12;
+        dispNum(hr, 0);
+      }
+      if (millisNow > clockTime2 && millisNow < clockTime3) {
+        dispBlank();
+      }
+      if (millisNow > clockTime3 && millisNow < clockTime4) {
+        dispNum(now.minute(), 1);
+      }
+      if (millisNow > clockTime4) {
+        clockCount = millis();
+      }
     }
 
   } // main loop
@@ -407,7 +476,9 @@ int funDisp() {
   delay(dly);
   dispNum(16, 1);
   delay(dly);
-  dispNum(32, 1);
+  dispNum(23, 1);
+  delay(dly);
+  dispNum(42, 1);
   
   delay(dly);
   for (i=0; i < randoNums; i++) {
