@@ -15,6 +15,9 @@
 // define RTC module
 RTC_DS3231 rtc;
 
+// should the program set the clock time to the compile time? 1 for yes, 0 for no
+const int SET_TIME = 0;
+
 // multiplexer input arduino output pins
 const int TENS_A = 8;
 const int TENS_B = 4;
@@ -58,8 +61,8 @@ const long RIGHT_BTN = 0xDE0787EE;
 const long LEFT_BTN = 0xDE0887EE;
 
 // times (ms) for clock display state machine
-const int MIN_HR_MILS = 1000;    // time btwn displaying minute and hour
-const int DIGIT_MILS = 3000;    // time hr/min will display
+const int MIN_HR_MILS = 1300;    // time btwn displaying minute and hour
+const int DIGIT_MILS = 1300;    // time hr/min will display
 const int HR_MIN_MILS = 200;    // time btwn displaying hour and minute
 
 // configure arduino IO
@@ -104,9 +107,10 @@ void setup() {
   // initialize RTC
   rtc.begin();
 
-  // this will set the clock to the host computer's time when the code was compiled
-  //rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
-
+  // set clock
+  if (SET_TIME) {
+    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+  }
 }
 
 void loop() {
