@@ -5,8 +5,11 @@
   gets codes from apple remote and controls motorized volume 
   to program, select board: Nano and processor: Atmega328P (old bootloader)
 
+  Open the serial monitor before uploading the sketch if you get this error:
+  avrdude: ser_open(): can't set com-state for "\\.\COM3"
+
   J. Scott
-  last update: 2/13/2022
+  last update: 11/26/2023
 */
 
 #include <IRremote.h>
@@ -20,7 +23,8 @@ Oversample * sampler;
 RTC_DS3231 rtc;
 
 // should the program set the clock time to the compile time? 1 for yes, 0 for no
-const int SET_TIME = 1;
+// the clock will be set every time the arduino boots, so this should be set to 0 long term
+const int SET_TIME = 0;
 
 // multiplexer input arduino output pins
 const int TENS_A = 8;
@@ -42,10 +46,12 @@ const int MOTOR_B = 11;
 const int VOL_IN = A6;
 
 // volume ADC count array that maps ADC counts to display numbers (due to logarithmic pot)
-const int VOL_VALS[] = {0,32,96,128,160,224,256,288,352,384,416,480,512,544,608,640,672,736,768,800,864,896,928,992,1152,1312,1504,1664,1824,1984,2176,2336,2496,2656,2848,3008,3168,3328,3520,3680,3840,4000,4192,4352,4512,4672,4864,5024,5184,5344,5536,5696,5856,6016,6208,6368,6528,6688,6880,7040,7200,7360,7552,7712,7872,8352,8832,9280,9760,10240,10720,11168,11648,12128,12896,13664,14432,15200,15936,16704,17472,18240,19008,19776,20544,21312,22080,22816,23584,24352,25120,25888,26656,27424,28192,28960,29696,30464,31232,32000};
+
+// 15 bit
+//const int VOL_VALS[] = {0,32,96,128,160,224,256,288,352,384,416,480,512,544,608,640,672,736,768,800,864,896,928,992,1152,1312,1504,1664,1824,1984,2176,2336,2496,2656,2848,3008,3168,3328,3520,3680,3840,4000,4192,4352,4512,4672,4864,5024,5184,5344,5536,5696,5856,6016,6208,6368,6528,6688,6880,7040,7200,7360,7552,7712,7872,8352,8832,9280,9760,10240,10720,11168,11648,12128,12896,13664,14432,15200,15936,16704,17472,18240,19008,19776,20544,21312,22080,22816,23584,24352,25120,25888,26656,27424,28192,28960,29696,30464,31232,32000};
 
 //14 bit
-//const int VOL_VALS[] = {0,16,48,64,80,112,128,144,176,192,208,240,256,272,304,320,336,368,384,400,432,448,464,496,576,656,752,832,912,992,1088,1168,1248,1328,1424,1504,1584,1664,1760,1840,1920,2000,2096,2176,2256,2336,2432,2512,2592,2672,2768,2848,2928,3008,3104,3184,3264,3344,3440,3520,3600,3680,3776,3856,3936,4176,4416,4640,4880,5120,5360,5584,5824,6064,6448,6832,7216,7600,7968,8352,8736,9120,9504,9888,10272,10656,11040,11408,11792,12176,12560,12944,13328,13712,14096,14480,14848,15232,15616,16000};
+const int VOL_VALS[] = {0,16,48,64,80,112,128,144,176,192,208,240,256,272,304,320,336,368,384,400,432,448,464,496,576,656,752,832,912,992,1088,1168,1248,1328,1424,1504,1584,1664,1760,1840,1920,2000,2096,2176,2256,2336,2432,2512,2592,2672,2768,2848,2928,3008,3104,3184,3264,3344,3440,3520,3600,3680,3776,3856,3936,4176,4416,4640,4880,5120,5360,5584,5824,6064,6448,6832,7216,7600,7968,8352,8736,9120,9504,9888,10272,10656,11040,11408,11792,12176,12560,12944,13328,13712,14096,14480,14848,15232,15616,16000};
 
 //16 bit
 //const unsigned int VOL_VALS[] = {0,64,192,256,320,448,512,576,704,768,832,960,1024,1088,1216,1280,1344,1472,1536,1600,1728,1792,1856,1984,2304,2624,3008,3328,3648,3968,4352,4672,4992,5312,5696,6016,6336,6656,7040,7360,7680,8000,8384,8704,9024,9344,9728,10048,10368,10688,11072,11392,11712,12032,12416,12736,13056,13376,13760,14080,14400,14720,15104,15424,15744,16704,17664,18560,19520,20480,21440,22336,23296,24256,25792,27328,28864,30400,31872,33408,34944,36480,38016,39552,41088,42624,44160,45632,47168,48704,50240,51776,53312,54848,56384,57920,59392,60928,62464,64000,65535};
@@ -87,7 +93,7 @@ const int HR_MIN_MILS = 200;    // time btwn displaying hour and minute
 void setup() {
 
   // initialize sampler
-  sampler = new Oversample(VOL_IN, 15);
+  sampler = new Oversample(VOL_IN, 14);
 
   // declare the multiplexer pins as output
   pinMode(TENS_A, OUTPUT);
@@ -137,8 +143,8 @@ void setup() {
 void loop() {
 
   // initialize variables
-  int reading = 0;                // volume pot ADC reading
-  int numRdgs = 300;              // number of volume pot readings to average
+  unsigned long reading = 0;      // volume pot ADC reading
+  int numRdgs = 10;              // number of volume pot readings to average
   int j;                          // index of volume array (also volume setting number to display)
   int oldj = 200;                 // last index of volume array - set to impossible value at first to force display update
   int k;                          // volume ADC reading counter
@@ -155,6 +161,9 @@ void loop() {
   int clockMode = 0;              // clock mode flag
   int millisNow;                  // var for capturing current millisecond timer value
   int hr;                         // variable for storing hour so we can convert it from 24 hr to 12 hr mode
+  int single;                     // single ADC reading
+  double oversampled;             // oversampled ADC reading
+  long oversampledReading;        // final ADC reading
 
   // vars below convert clock time constants into accumulating time for state machine
   int clockTime1 = MIN_HR_MILS;                                    
@@ -181,12 +190,15 @@ void loop() {
   while (1) {
 
     // get average reading
-    //for (k = 0; k < numRdgs; k++) {
-    //  delayMicroseconds(260);              // max conversion time according to atmega328 datasheet
-    //  avgRdg += analogRead(VOL_IN);
-    //}
-    //reading = avgRdg / numRdgs;
-    //avgRdg = 0;
+    for (k = 0; k < numRdgs; k++) {
+      delayMicroseconds(260);              // max conversion time according to atmega328 datasheet
+      single = analogRead(VOL_IN);
+      oversampled = sampler->read();
+      oversampledReading = sampler->readDecimated();
+      avgRdg += oversampledReading;
+    }
+    reading = avgRdg / numRdgs;
+    avgRdg = 0;
 
     int single = analogRead(VOL_IN);
     double oversampled = sampler->read();
@@ -277,6 +289,8 @@ void loop() {
         hr = now.hour();
         if (hr > 12)
           hr = hr - 12;
+        if (hr == 0)
+          hr = 12;
         dispNum(hr, 0);
       }
       if (millisNow > clockTime2 && millisNow < clockTime3) {
